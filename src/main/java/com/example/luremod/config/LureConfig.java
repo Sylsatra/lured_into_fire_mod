@@ -31,7 +31,7 @@ public class LureConfig {
         data.load();
 
         if (!data.contains("luremod.entities")) {
-            data.set("luremod.entities", Arrays.asList("minecraft:sheep", "minecraft:horse"));
+            data.set("luremod.entities", Arrays.asList("minecraft:cat", "minecraft:zombie", "minecraft:skeleton", "minecraft:spider", "minecraft:creeper", "minecraft:husk", "minecraft:drowned", "minecraft:villager", "minecraft:vindicator", "minecraft:vex", "minecraft:ravager", "minecraft:evoker", "minecraft:pillager", "minecraft:cod", "minecraft:tropical_fish", "minecraft:salmon", "minecraft:pufferfish", "minecraft:turtle", "minecraft:dolphin", "minecraft:guardian", "minecraft:elder_guardian", "minecraft:iron_golem"));
         }
         data.setComment("luremod.entities",
             "List of entity IDs (in \"modid:entityid\" format) that will be attracted.\n"
@@ -43,7 +43,7 @@ public class LureConfig {
         );
 
         if (!data.contains("luremod.blocks")) {
-            data.set("luremod.blocks", Arrays.asList("minecraft:campfire"));
+            data.set("luremod.blocks", Arrays.asList("minecraft:campfire", "minecraft:soul_campfire", "minecraft:torch", "minecraft:redstone_torch", "minecraft:soul_torch"));
         }
         data.setComment("luremod.blocks",
             "Block IDs (in \"modid:blockid\" format) that the mob is attracted to.\n"
@@ -55,7 +55,7 @@ public class LureConfig {
         );
 
         if (!data.contains("luremod.items")) {
-            data.set("luremod.items", Arrays.asList("minecraft:torch"));
+            data.set("luremod.items", Arrays.asList("minecraft:torch", "minecraft:redstone_torch", "minecraft:soul_torch"));
         }
         data.setComment("luremod.items",
             "Any item (\"modid:itemid\") that attracts the mob if a nearby player holds it.\n"
