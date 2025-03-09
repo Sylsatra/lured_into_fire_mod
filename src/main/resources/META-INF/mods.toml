@@ -1,10 +1,10 @@
 modLoader="javafml"
 loaderVersion="[40,41)"
-license="GPL-3.0-only"
+license="GPLv3"
 
 [[mods]]
 modId="luremod"
-version="1.0"
+version="1.0.1"
 displayName="Attract to Fire Mod"
 authors="Sylsatra"
 description='''A mod to make mobs Fascinated with fire.'''
