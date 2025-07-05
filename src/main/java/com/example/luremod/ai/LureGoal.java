@@ -1,137 +1,154 @@
 package com.example.luremod.ai;
 
-import com.example.luremod.config.LureConfig;
+import com.example.luremod.config.LureConfigHolder; 
+import com.example.luremod.manager.LureGroup;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.Item;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.pathfinder.Path;
+import net.minecraft.world.level.pathfinder.PathComputationType;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.EnumSet;
 import java.util.List;
 
-
 public class LureGoal extends Goal {
     private final Mob mob;
-    private final double speedMod;
+    private final LureGroup lureGroup;
+    private Vec3 targetPosition;
+    private int scanCooldown;
 
-    private double stopDistanceSq = LureConfig.STOP_DISTANCE * LureConfig.STOP_DISTANCE;
-
-    private Vec3 lurePos;
-    private boolean lureIsPlayer;
-
-    public LureGoal(Mob mob, double speedMod) {
+    public LureGoal(Mob mob, LureGroup lureGroup) {
         this.mob = mob;
-        this.speedMod = speedMod;
-        this.setFlags(EnumSet.of(Goal.Flag.MOVE));
+        this.lureGroup = lureGroup;
+        this.setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));
     }
 
     @Override
     public boolean canUse() {
-        lurePos = findNearestLure();
-        return lurePos != null;
+        if (this.scanCooldown > 0) {
+            --this.scanCooldown;
+            return false;
+        }
+        this.scanCooldown = LureConfigHolder.SCAN_COOLDOWN_TICKS.get();
+
+        if (!isPlayerNearbyForActivation()) {
+            return false;
+        }
+
+        this.targetPosition = this.findNearestLure();
+        return this.targetPosition != null;
     }
 
     @Override
     public boolean canContinueToUse() {
-        if (lurePos == null) return false;
-        double distSqr = mob.blockPosition().distToCenterSqr(lurePos);
-        if (distSqr <= stopDistanceSq) {
+        if (this.mob.getNavigation().isDone()) {
             return false;
         }
-        return checkLureStillValid();
+        if (this.targetPosition != null && this.mob.position().distanceToSqr(this.targetPosition) < 4.0) { // 2-block radius
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public void start() {
+        this.mob.getNavigation().moveTo(this.targetPosition.x, this.targetPosition.y, this.targetPosition.z, this.lureGroup.lureSpeed());
     }
 
     @Override
     public void stop() {
-        lurePos = null;
-        lureIsPlayer = false;
-    }
-
-    @Override
-    public void tick() {
-        if (lurePos != null) {
-            mob.getNavigation().moveTo(lurePos.x, lurePos.y, lurePos.z, speedMod);
-        }
+        this.targetPosition = null;
+        this.mob.getNavigation().stop();
     }
 
     private Vec3 findNearestLure() {
-        Level level = mob.level();
-        BlockPos mobPos = mob.blockPosition();
         double closestDistSq = Double.MAX_VALUE;
-        Vec3 closestVec = null;
-        boolean foundPlayer = false;
+        Vec3 bestTarget = null;
+        Level level = this.mob.level();
+        
+        int radius = this.lureGroup.searchRadius();
+        int vertical = radius / 2;
 
-        for (int x = -LureConfig.SEARCH_RADIUS; x <= LureConfig.SEARCH_RADIUS; x++) {
-            for (int y = -LureConfig.VERTICAL_RANGE; y <= LureConfig.VERTICAL_RANGE; y++) {
-                for (int z = -LureConfig.SEARCH_RADIUS; z <= LureConfig.SEARCH_RADIUS; z++) {
-                    BlockPos checkPos = mobPos.offset(x, y, z);
-                    if (isLureBlock(level, checkPos)) {
-                        double dist = mobPos.distSqr(checkPos);
-                        if (dist < closestDistSq) {
-                            closestDistSq = dist;
-                            closestVec = Vec3.atCenterOf(checkPos);
-                            foundPlayer = false;
+        BlockPos.MutableBlockPos checkPos = new BlockPos.MutableBlockPos();
+        BlockPos mobPos = this.mob.blockPosition();
+        for (int x = -radius; x <= radius; ++x) {
+            for (int y = -vertical; y <= vertical; ++y) {
+                for (int z = -radius; z <= radius; ++z) {
+                    checkPos.set(mobPos.getX() + x, mobPos.getY() + y, mobPos.getZ() + z);
+                    BlockState blockState = level.getBlockState(checkPos);
+                    if (!blockState.isAir()) {
+                        BlockEntity blockEntity = blockState.hasBlockEntity() ? level.getBlockEntity(checkPos) : null;
+                        if (this.lureGroup.isLuredBlock(blockState, blockEntity)) {
+                            Vec3 reachablePos = findReachablePositionNear(checkPos);
+                            if (reachablePos != null && hasLineOfSight(reachablePos)) {
+                                double distSq = this.mob.position().distanceToSqr(reachablePos);
+                                if (distSq < closestDistSq) {
+                                    closestDistSq = distSq;
+                                    bestTarget = reachablePos;
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-
-        Vec3 mobCenter = Vec3.atCenterOf(mobPos);
-        AABB box = new AABB(
-            mobCenter.x - LureConfig.SEARCH_RADIUS, mobCenter.y - LureConfig.VERTICAL_RANGE, mobCenter.z - LureConfig.SEARCH_RADIUS,
-            mobCenter.x + LureConfig.SEARCH_RADIUS, mobCenter.y + LureConfig.VERTICAL_RANGE, mobCenter.z + LureConfig.SEARCH_RADIUS
-        );
-        List<Player> nearPlayers = mob.level().getEntitiesOfClass(Player.class, box);
-        for (Player player : nearPlayers) {
-            if (isHoldingLureItem(player)) {
-                double dist = mob.distanceToSqr(player);
-                if (dist < closestDistSq) {
-                    closestDistSq = dist;
-                    closestVec = player.position();
-                    foundPlayer = true;
+        
+        AABB playerSearchBox = this.mob.getBoundingBox().inflate(radius, vertical, radius);
+        List<Player> players = level.getEntitiesOfClass(Player.class, playerSearchBox);
+        for (Player player : players) {
+            if (this.lureGroup.isLuredItem(player.getMainHandItem()) || this.lureGroup.isLuredItem(player.getOffhandItem())) {
+                if (hasLineOfSight(player.position())) {
+                    Vec3 reachablePos = findReachablePositionNear(player.blockPosition());
+                    if (reachablePos != null) {
+                        double distSq = this.mob.position().distanceToSqr(reachablePos);
+                        if (distSq < closestDistSq) {
+                            closestDistSq = distSq;
+                            bestTarget = reachablePos;
+                        }
+                    }
                 }
             }
         }
-
-        lureIsPlayer = foundPlayer;
-        return closestVec;
+        
+        return bestTarget;
     }
 
-    private boolean checkLureStillValid() {
-        if (lurePos == null) return false;
-
-        if (lureIsPlayer) {
-
-            double range = 2.0; 
-            AABB box = new AABB(
-                lurePos.x - range, lurePos.y - 2, lurePos.z - range,
-                lurePos.x + range, lurePos.y + 2, lurePos.z + range
-            );
-            List<Player> nearPlayers = mob.level().getEntitiesOfClass(Player.class, box);
-            if (nearPlayers.isEmpty()) return false;
-            return isHoldingLureItem(nearPlayers.get(0));
+    private Vec3 findReachablePositionNear(BlockPos target) {
+        PathNavigation navigation = this.mob.getNavigation();
+        for (Direction direction : Direction.Plane.HORIZONTAL) {
+            BlockPos adjacentPos = target.relative(direction);
+            Level level = this.mob.level();
+            
+            if (level.getBlockState(adjacentPos).isPathfindable(level, adjacentPos, PathComputationType.LAND) &&
+                level.getBlockState(adjacentPos.above()).isPathfindable(level, adjacentPos.above(), PathComputationType.LAND)) {
+                
+                Path path = navigation.createPath(adjacentPos, 0);
+                if (path != null && path.canReach()) {
+                    return Vec3.atBottomCenterOf(adjacentPos);
+                }
+            }
         }
-        else {
-            BlockPos blockPos = BlockPos.containing(lurePos);
-            return isLureBlock(mob.level(), blockPos);
-        }
+        return null;
+    }
+    
+    private boolean isPlayerNearbyForActivation() {
+        double activationRadius = LureConfigHolder.BLOCK_CHECK_PLAYER_RADIUS.get();
+        AABB checkArea = this.mob.getBoundingBox().inflate(activationRadius);
+        return !this.mob.level().getEntitiesOfClass(Player.class, checkArea).isEmpty();
     }
 
-    private boolean isLureBlock(Level level, BlockPos pos) {
-        Block block = level.getBlockState(pos).getBlock();
-        return LureConfig.BLOCKS_TO_LURE.contains(block);
-    }
-
-    private boolean isHoldingLureItem(Player player) {
-        var main = player.getMainHandItem().getItem();
-        if (LureConfig.ITEMS_TO_LURE.contains(main)) return true;
-        var off = player.getOffhandItem().getItem();
-        return LureConfig.ITEMS_TO_LURE.contains(off);
+    private boolean hasLineOfSight(Vec3 target) {
+        Vec3 eyePos = this.mob.getEyePosition();
+        return this.mob.level().clip(new ClipContext(eyePos, target, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this.mob)).getType() == BlockHitResult.Type.MISS;
     }
 }
