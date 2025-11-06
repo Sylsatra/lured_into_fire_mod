@@ -21,6 +21,8 @@ public record LureGroup(
     String groupId,
     double lureSpeed,
     int searchRadius,
+    boolean attractedToBlood,
+    boolean bloodBypassesLos,
     List<MobDefinition> mobs,
     List<LureSourceDefinition> luredBlocks, 
     List<LureSourceDefinition> luredItems   
@@ -29,13 +31,15 @@ public record LureGroup(
         String groupId = config.get("group_id");
         double lureSpeed = config.getOptional("lure_speed").map(o -> ((Number) o).doubleValue()).orElse(1.2);
         int searchRadius = config.getOptional("search_radius").map(o -> ((Number) o).intValue()).orElse(8);
+        boolean attractedToBlood = config.getOptional("attracted_to_blood").map(o -> (Boolean) o).orElse(false);
+        boolean bloodBypassesLos = config.getOptional("blood_bypasses_los").map(o -> (Boolean) o).orElse(false);
         List<MobDefinition> mobs = ((List<Config>) config.get("mobs")).stream()
                 .map(MobDefinition::fromConfig).collect(Collectors.toList());
         List<LureSourceDefinition> luredBlocks = ((List<Config>) config.get("lured_blocks")).stream()
                 .map(LureSourceDefinition::fromConfig).collect(Collectors.toList());
         List<LureSourceDefinition> luredItems = ((List<Config>) config.get("lured_items")).stream()
                 .map(LureSourceDefinition::fromConfig).collect(Collectors.toList());
-        return new LureGroup(groupId, lureSpeed, searchRadius, mobs, luredBlocks, luredItems);
+        return new LureGroup(groupId, lureSpeed, searchRadius, attractedToBlood, bloodBypassesLos, mobs, luredBlocks, luredItems);
     }
 
     public int getMatchScore(Mob mob) {
